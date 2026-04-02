@@ -1,309 +1,238 @@
 # Agent Context: @pencil/frontend-asset-processor
 
-## What This Repo Is
+## Repo Summary
 
-A frontend (browser-based) asset processing library that replaces selected backend Python processing from the `frk-asset-processor` service. It handles compute-heavy media operations (image validation, format conversion, video trimming, transcoding, metadata extraction) directly in the browser before uploading processed results to the backend API.
+This repository is a browser-side asset-processing library with a local playground for manual verification.
 
-This repo is **library-first** and also includes a **local React + TypeScript playground app** under `playground/` for manual testing. The playground is a developer tool, not a published runtime artifact.
+Primary goals:
 
-## Origin & Relationship to Backend
+- validate image and video assets before upload
+- normalize images and videos in the browser
+- mirror selected backend preprocessing behavior
+- reduce avoidable backend work and give earlier feedback to users
 
-This project mirrors specific functions from the Python backend at `frk-asset-processor/src/asset_processor/processors.py` and related modules. The backend processes assets via an AMQP queue (`spanner_create_asset_processor_v2_queue`) with a Job Type Router that dispatches to REGULAR (product/image), MEDIACONVERT, or VIDEO PROCESSOR flows.
+This is not a generic uploader and not a backend replacement. It is a media-processing codebase with a dev playground wrapped around it.
 
-This frontend library covers:
+## Working Model
 
-- **REGULAR → Product Asset Flow**: image validation, segmentation detection, WebP conversion, thumbnail generation
-- **VIDEO PROCESSOR → Video Asset Flow**: video preprocessing (trim/thumbnail), transcoding, metadata extraction, audio extraction
+Treat the repo as two related surfaces:
 
-What **stays on the backend** (not in this repo):
+- shared library code under `src/`
+- manual verification UI under `playground/`
 
-- Embedding generation (Vertex AI)
-- Speech-to-text submission
-- Database writes (`save_*_to_db` functions)
-- AMQP event publishing
-- Segmentation queue dispatch
-- Prediction events
-- Video Processing Pipeline steps 4–7 (speech processing, child asset creation, finalization)
+Default rule:
 
-## Tech Stack
+- if a change is product or pipeline logic, it probably belongs in `src/`
+- if a change is only for manual exploration or testing UX, it probably belongs in `playground/`
 
-- **Language**: TypeScript (strict mode, ES2022 target)
-- **Build**: Vite (library mode for `src/` + dedicated Vite config for `playground/`)
-- **Tests**: Vitest + jsdom environment
-- **Image Processing**: jSquash (`@jsquash/webp`, `@jsquash/png`, `@jsquash/jpeg`, `@jsquash/resize`) — Google's Squoosh codecs compiled to WebAssembly
-- **Video Processing**: MediaBunny (`mediabunny`) — pure TypeScript media toolkit using WebCodecs API
+Do not leak playground-only helpers into the shared library unless there is a real reuse case.
 
-## Project Structure
+## High-Value Files
 
-```
-playground/
-├── index.html                          # Playground app HTML entry
-├── vite.config.ts                      # Playground Vite config
-├── tsconfig.json                       # Playground typecheck config
-└── src/
-    ├── main.tsx                        # React mount entry
-    ├── App.tsx                         # Image/video flow UI + Validation Lab (real + synthetic/simulated cases)
-    └── styles.css                      # Playground styles
+- `src/index.ts`
+  - public API barrel
+- `src/types/index.ts`
+  - shared types and backend-mirrored constants
+- `src/lib/image-validation.ts`
+  - hard image dimension validation and original scaling
+- `src/lib/segmentation-detection.ts`
+  - alpha checks and white-background heuristics
+- `src/lib/webp-conversion.ts`
+  - image decode, optional scale, WebP encode
+- `src/lib/thumbnail-generation.ts`
+  - thumbnail generation
+- `src/lib/video-metadata.ts`
+  - video validation and metadata extraction
+- `src/lib/video-preprocessing.ts`
+  - trim orchestration and thumbnail extraction
+- `src/lib/video-transcoding.ts`
+  - MediaBunny conversion pipeline
+- `src/lib/audio-extraction.ts`
+  - audio track extraction helpers
+- `src/lib/asset-pipeline.ts`
+  - end-to-end product and video pipeline orchestration
+- `playground/src/App.tsx`
+  - developer UI for image flow, video flow, and Validation Lab
+- `playground/src/test-media.ts`
+  - deterministic `test://` validation sources
+- `playground/src/styles.css`
+  - playground styles only
+- `README.md`
+  - external project documentation
 
-src/
-├── index.ts                              # Public API barrel export
-├── types/
-│   └── index.ts                          # All shared types, enums, and CONFIG constants
-├── lib/
-│   ├── image-validation.ts               # validateImageDimensions()
-│   ├── segmentation-detection.ts         # isSegmentedImage(), detectWhiteBackground()
-│   ├── webp-conversion.ts                # convertToWebP()
-│   ├── thumbnail-generation.ts           # generateThumbnail()
-│   ├── video-preprocessing.ts            # preprocessVideo(), extractVideoThumbnail()
-│   ├── video-transcoding.ts              # transcodeVideo(), trimVideo()
-│   ├── video-metadata.ts                 # extractVideoAttributes(), validateVideoFile()
-│   ├── audio-extraction.ts              # extractAudioTrack(), hasAudioTrack()
-│   └── asset-pipeline.ts                # processProductAsset(), processVideoAsset()
-└── __tests__/
-    ├── setup.ts                          # Browser API polyfills (OffscreenCanvas, ImageData, createImageBitmap)
-    ├── image-validation.test.ts          # 6 tests
-    ├── segmentation-detection.test.ts    # 7 tests
-    ├── webp-conversion.test.ts           # 4 tests
-    ├── thumbnail-generation.test.ts      # 5 tests
-    └── video-metadata.test.ts            # 3 tests
-```
+## Current Playground Behavior
 
-## Module Responsibilities
+The playground currently exposes three major areas:
 
-### Image Processing Modules
+- `Image Flow`
+- `Video Flow`
+- `Validation Lab`
 
-**`image-validation.ts`** — Mirrors backend `validate_image_dimensions()`, `check_image_dimensions_valid()`, `check_and_scale_original()`, `scale_image()`.
+### Validation Lab
 
-- Rejects images with any dimension > 25,000px
-- Scales down to 16,000px if in the 16k–25k range
-- Returns `ImageData` for downstream use
-- Uses `createImageBitmap()` + `OffscreenCanvas` for decoding and scaling
+Validation Lab is intentionally source-driven, not case-driven.
 
-**`segmentation-detection.ts`** — Mirrors backend `is_segmented_image()`, `get_override_segment()`, `is_product_on_white_background()`, `is_product_on_white_background_helper()`.
+Current UX expectations:
 
-- Alpha-channel check: fast path for already-segmented images
-- Flood-fill white-background detection: converts to grayscale → adds border → rescales intensity → flood fills from (0,0) → classifies as SEGMENTABLE_PRODUCT, UNSEGMENTABLE_PRODUCT, or NOT_PRODUCT
-- The flood-fill algorithm is tuned for real photographic images (not synthetic test data)
+- image and video use matching source-picker patterns
+- each picker lets the user choose upload mode or `test://` preset mode
+- upload and test URL selection live in the same component
+- each column has one main `Run Validation` button
+- the result view shows matched branch and check statuses
+- no visible `Branch Test Matrix`
 
-**`webp-conversion.ts`** — Mirrors backend `convert_webp()`, `convert_image_to_webp()`.
+If you change any of that, update `README.md` and this file in the same change.
 
-- Decodes input via jSquash PNG/JPEG decoders or browser `createImageBitmap()`
-- Optional scaling if exceeding `SCALED_IMAGE_DIMENSION_LIMIT`
-- Encodes to WebP via `@jsquash/webp` WASM encoder
-- Returns `Blob` ready for upload
+### Layout Expectation
 
-**`thumbnail-generation.ts`** — Mirrors backend `generate_thumbnail()`.
+The image and video validation columns should size independently. The left column must not stretch to match a taller right column.
 
-- Preserves aspect ratio (like PIL's `Image.thumbnail()`)
-- Never upscales
-- Fits within configurable max dimensions (default 300x300)
-- Outputs WebP via jSquash
+## Backend Relationship
 
-### Video Processing Modules
+This repo mirrors frontend-safe parts of the Python backend processing stack.
 
-**`video-preprocessing.ts`** — Mirrors backend `video_preprocessor()` from `video_processor/processors.py`.
+Still backend-only:
 
-- Optional video trimming (delegates to `video-transcoding.ts`)
-- Thumbnail extraction from video frame via HTML5 `<video>` element + `OffscreenCanvas`
-- Returns duration, optional trimmed blob, optional thumbnail blob
+- persistence
+- storage writes
+- queue publishing and routing
+- segmentation dispatch
+- embeddings
+- speech-to-text submission
+- downstream async processing and finalization
 
-**`video-transcoding.ts`** — Mirrors backend FFmpeg/MediaConvert transcoding.
+When changing constants or validation behavior, assume backend parity matters until proven otherwise.
 
-- Uses MediaBunny's `Input` → `Conversion` → `Output` pipeline
-- `transcodeVideo()`: full format transcoding (MP4/H.264/AAC or WebM/VP9/Opus)
-- `trimVideo()`: time-range extraction with `Conversion.init({ trim: { start, end } })`
-- All outputs to `BufferTarget` → `Blob`
+## Backend Mapping
 
-**`video-metadata.ts`** — Mirrors backend Video Processing Pipeline steps 1–2.
+Use these pairings when checking parity:
 
-- Combines MediaBunny metadata (codec, bitrate, frame rate via `PacketStats`) with HTML5 Video metadata (duration, dimensions)
-- `validateVideoFile()`: checks size limit, MIME type, and extractable metadata
+| Frontend Function | Backend Function | Backend Area |
+| --- | --- | --- |
+| `validateImageDimensions()` | `validate_image_dimensions()` | image processor utils |
+| `isSegmentedImage()` | `is_segmented_image()` | image processor utils |
+| `detectWhiteBackground()` | `get_override_segment()` and `is_product_on_white_background()` | image processor utils |
+| `convertToWebP()` | `convert_webp()` and `convert_image_to_webp()` | image processor utils |
+| `generateThumbnail()` | `generate_thumbnail()` | image processor utils |
+| `preprocessVideo()` | `video_preprocessor()` | video processor |
+| `transcodeVideo()` and `trimVideo()` | FFmpeg or MediaConvert path | video processor |
+| `extractVideoAttributes()` | metadata extraction stages | video processor |
+| `extractAudioTrack()` | audio extraction stage | video processor |
+| `processProductAsset()` | product asset processor flow | asset processor |
+| `processVideoAsset()` | video preprocessing plus processor flow | video processor |
 
-**`audio-extraction.ts`** — Mirrors backend Video Processing Pipeline step 3 (audio processing).
+## Constants That Must Stay In Sync
 
-- Strips video track, re-encodes audio to WAV/MP3/OGG
-- `hasAudioTrack()`: quick check via MediaBunny `getPrimaryAudioTrack()`
-- Speech-to-text submission remains a backend API call
+These values live in `src/types/index.ts` and should track backend intent:
 
-### Orchestrator
+- `VALID_IMAGE_DIMENSION_LIMIT = 25000`
+- `ORIGINAL_IMAGE_DIMENSION_LIMIT = 16000`
+- `WEBP_MAX_DIMENSION = 16000`
+- `SCALED_IMAGE_DIMENSION_LIMIT = 4096`
+- `MIN_PRODUCT_EMPTY_AREA_RATIO = 0.15`
+- `THUMBNAIL_MAX_WIDTH = 300`
+- `THUMBNAIL_MAX_HEIGHT = 300`
+- `WEBP_QUALITY = 80`
+- `IS_WHITE_BG_THR = 0.05`
+- `FLOOD_TOL = 30`
+- `CONTRAST_RED = 0.85`
 
-**`asset-pipeline.ts`** — High-level entry points that chain all modules.
+Do not change them casually. If backend parity changes, document why.
 
-- `processProductAsset(file, onProgress?)`: validate → detect segmentation → convert WebP → generate thumbnail
-- `processVideoAsset(file, options?, onProgress?)`: validate → preprocess (trim/thumbnail) → transcode → extract audio
-- Both accept a `ProgressCallback` for UI progress updates
+## MediaBunny Notes
 
-## Key Types (in `types/index.ts`)
+MediaBunny in this repo uses the explicit pipeline API.
 
-| Type                    | Purpose                                                                     |
-| ----------------------- | --------------------------------------------------------------------------- |
-| `ValidationResult`      | Image dimension validation outcome                                          |
-| `ScalingInfo`           | Metadata about applied scaling (factor, original/scaled dimensions)         |
-| `SegmentationResult`    | Alpha-channel segmentation check result                                     |
-| `WhiteBackgroundResult` | Flood-fill white-bg classification + `IsProductType` enum                   |
-| `WebPConversionResult`  | WebP blob + optional scaling info                                           |
-| `ThumbnailResult`       | Thumbnail blob + dimensions                                                 |
-| `VideoPreprocessResult` | Trimmed blob + thumbnail blob + duration                                    |
-| `TranscodeOptions`      | Format, bitrate, resolution for transcoding                                 |
-| `VideoAttributes`       | Full video metadata (duration, dimensions, codecs, bitrate, file size)      |
-| `ProductAssetResult`    | Complete product pipeline output (WebP + thumbnail + segmentation)          |
-| `VideoAssetResult`      | Complete video pipeline output (processed + transcoded + thumbnail + audio) |
-| `CONFIG`                | All algorithm constants mirrored from backend Python config                 |
+Expected pattern:
 
-## CONFIG Constants
-
-These mirror the backend Python configuration. If the backend values change, update `types/index.ts`:
-
-| Constant                         | Value  | Backend Source                          |
-| -------------------------------- | ------ | --------------------------------------- |
-| `VALID_IMAGE_DIMENSION_LIMIT`    | 25,000 | `config.VALID_IMAGE_DIMENSION_LIMIT`    |
-| `ORIGINAL_IMAGE_DIMENSION_LIMIT` | 16,000 | `config.ORIGINAL_IMAGE_DIMENSION_LIMIT` |
-| `WEBP_MAX_DIMENSION`             | 16,000 | `config.WEBP_MAX_DIMENSION`             |
-| `SCALED_IMAGE_DIMENSION_LIMIT`   | 4,096  | `config.SCALED_IMAGE_DIMENSION_LIMIT`   |
-| `MIN_PRODUCT_EMPTY_AREA_RATIO`   | 0.15   | `config.MIN_PRODUCT_EMPTY_AREA_RATIO`   |
-| `THUMBNAIL_MAX_WIDTH/HEIGHT`     | 300    | `config.IMAGE_THUMBNAIL_DIMENSIONS`     |
-| `WEBP_QUALITY`                   | 80     | Backend PIL save quality                |
-| `IS_WHITE_BG_THR`                | 0.05   | Flood-fill diff fraction threshold      |
-| `FLOOD_TOL`                      | 30     | Flood-fill pixel tolerance              |
-| `CONTRAST_RED`                   | 0.85   | Intensity rescale factor                |
-
-## MediaBunny API Patterns
-
-MediaBunny uses an explicit pipeline pattern (NOT the simplified `new Input(file)` style):
-
-```typescript
-import {
-  Input,
-  BlobSource,
-  Output,
-  BufferTarget,
-  Conversion,
-  Mp4OutputFormat,
-  ALL_FORMATS,
-} from 'mediabunny';
-
-// Create input from File/Blob
+```ts
 const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(file) });
-
-// Create output with format + target
 const target = new BufferTarget();
 const output = new Output({ format: new Mp4OutputFormat(), target });
-
-// Initialize and run conversion
-const conversion = await Conversion.init({ input, output /* options */ });
+const conversion = await Conversion.init({ input, output });
 await conversion.execute();
 await output.finalize();
-
-// Get result as Blob
-const blob = new Blob([target.buffer!], { type: 'video/mp4' });
 ```
 
-Key codec names: `"avc"` (not h264), `"pcm-s16"` (not pcm_s16le), `averagePacketRate` (not averageFrameRate).
+Remember:
 
-## jSquash API Patterns
+- codec names like `"avc"` are correct
+- packet stats use `averagePacketRate`
+- do not invent simplified APIs that are not in the installed version
 
-jSquash modules are lazy-imported (tree-shakeable WASM):
+## jSquash Notes
 
-```typescript
-const { encode: encodeWebP } = await import('@jsquash/webp');
-const { default: resize } = await import('@jsquash/resize');
+jSquash modules are lazy-imported and operate on `ImageData`.
 
-// All jSquash functions work with ImageData objects
-const resizedData = await resize(imageData, { width: 300, height: 300 });
-const webpBuffer = await encodeWebP(resizedData, { quality: 80 });
-const blob = new Blob([webpBuffer], { type: 'image/webp' });
+Typical flow:
+
+- decode to `ImageData`
+- optionally resize
+- encode through the relevant codec package
+- wrap the returned buffer in a `Blob`
+
+## Verification Expectations
+
+### When Changing Library Logic
+
+Run:
+
+```bash
+npm test
+npm run typecheck:lib
 ```
 
-## Testing
+### When Changing Playground UI
 
-- **Framework**: Vitest with jsdom environment
-- **Setup**: `src/__tests__/setup.ts` polyfills `OffscreenCanvas`, `ImageData`, `createImageBitmap`, `URL.createObjectURL`
-- **Mocking**: jSquash and MediaBunny modules are mocked in test files via `vi.mock()`
-- **Run**: `npm test` (or `npx vitest run`)
-- **Current**: 25 tests passing across 5 test suites
+Run:
 
-## Browser Requirements
+```bash
+npm run typecheck:playground
+npm run build:playground
+```
 
-- Chrome 94+ / Edge 94+ (full WebCodecs + OffscreenCanvas)
-- Firefox 105+ (WebCodecs support)
-- Safari 16.4+ (WebCodecs partial support)
-
-Both jSquash (WASM) and MediaBunny (WebCodecs) work best in Chromium-based browsers.
+Browser verification is preferred for UI work and any behavior relying on media APIs.
 
 ## Commands
 
 ```bash
-npm run dev                  # Start React playground app
-npm run dev:playground       # Start playground app explicitly
-npm run build                # Build library (alias for build:lib)
-npm run build:lib            # Build library → dist/
-npm run build:playground     # Build playground app → dist-playground/
-npm run preview:playground   # Preview playground build
-npm run typecheck            # Typecheck library (alias for typecheck:lib)
-npm run typecheck:lib        # TypeScript strict check for library
-npm run typecheck:playground # TypeScript strict check for playground
-npm test                     # Run all tests
+npm run dev
+npm run dev:playground
+npm run build
+npm run build:lib
+npm run build:playground
+npm run preview:playground
+npm run test
+npm run test:watch
+npm run lint
+npm run typecheck
+npm run typecheck:lib
+npm run typecheck:playground
 ```
 
-## Playground Validation Lab
+## Editing Guidance
 
-- Validation Lab is a developer-facing test harness in the playground app.
-- Default Validation Lab flow is source-driven: pick one upload or `test://` URL, run validation once, and inspect the matched branch plus per-check pass/fail summary.
-- It includes branch-level image/video validation cases using:
-  - real uploads
-  - dropdown-driven `test://` preset URLs resolved locally in the playground
-  - synthetic generated inputs (for dimension/format/size branches)
-  - simulated cases where real-world triggering is expensive or unreliable (duration-zero case)
-- Use `npm run dev` and open the playground UI to select a source and run validation.
+- Keep public API changes reflected in `README.md`.
+- Keep validation presets centralized in `playground/src/test-media.ts`.
+- Avoid scattering synthetic test logic through `App.tsx` when it can live in preset helpers.
+- Keep library behavior deterministic where possible; tests currently mock codec layers.
+- Prefer minimal, explicit state in the playground. The Validation Lab should stay understandable at a glance.
+- Do not add backend-only concerns to the frontend library.
 
-## Architecture Diagram
+## Known Constraints
 
-```
-┌─────────────────────────────────────────────────────┐
-│                    FRONTEND (this repo)              │
-│                                                      │
-│  ┌──────────────┐   ┌──────────────┐                │
-│  │   jSquash     │   │  MediaBunny  │                │
-│  │  (WASM)       │   │  (WebCodecs) │                │
-│  ├──────────────┤   ├──────────────┤                │
-│  │ validate dims │   │ trim video   │                │
-│  │ detect segment│   │ transcode    │                │
-│  │ convert webp  │   │ extract meta │                │
-│  │ gen thumbnail │   │ extract audio│                │
-│  └──────┬───────┘   └──────┬───────┘                │
-│         │                   │                        │
-│         └───────┬───────────┘                        │
-│                 │                                     │
-│          Upload processed blobs via API              │
-│                 │                                     │
-└─────────────────┼───────────────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────────────┐
-│             BACKEND (frk-asset-processor)            │
-│                                                      │
-│  • Save file info to DB (Spanner)                    │
-│  • Embeddings (Vertex AI)                            │
-│  • Speech-to-text                                    │
-│  • Asset event publishing (AMQP)                     │
-│  • Segmentation queue dispatch                       │
-│  • Prediction events                                 │
-│  • Storage (R2/S3)                                   │
-└─────────────────────────────────────────────────────┘
-```
+- Chromium-based browsers are the most reliable manual verification environment.
+- Safari and Firefox may behave differently for some media paths.
+- Large images and videos can be memory-intensive because several flows materialize decoded frames.
+- White-background flood-fill heuristics are tuned for photographic product images, not arbitrary synthetic art.
+- Test coverage validates orchestration and branching more than real codec correctness.
 
-## Backend Function Mapping
+## Git And Repo State
 
-| Frontend Function                  | Backend Function                                              | Backend File                          |
-| ---------------------------------- | ------------------------------------------------------------- | ------------------------------------- |
-| `validateImageDimensions()`        | `validate_image_dimensions()`                                 | `image_processor/utils.py:322`        |
-| `isSegmentedImage()`               | `is_segmented_image()`                                        | `image_processor/utils.py:602`        |
-| `detectWhiteBackground()`          | `get_override_segment()` → `is_product_on_white_background()` | `image_processor/utils.py:470,522`    |
-| `convertToWebP()`                  | `convert_webp()` + `convert_image_to_webp()`                  | `image_processor/utils.py:365,412`    |
-| `generateThumbnail()`              | `generate_thumbnail()`                                        | `image_processor/utils.py:662`        |
-| `preprocessVideo()`                | `video_preprocessor()`                                        | `video_processor/processors.py:26`    |
-| `transcodeVideo()` / `trimVideo()` | `video_transcoder_publish()` + FFmpeg                         | `video_processor/processors.py:180`   |
-| `extractVideoAttributes()`         | `__process_video()` steps 1–2                                 | `video_processor/processors.py:115`   |
-| `extractAudioTrack()`              | `__process_video()` step 3                                    | `video_processor/processors.py:115`   |
-| `processProductAsset()`            | `asset_processor()` → `AssetCreator.process_product_asset()`  | `asset_processor/processors.py:74`    |
-| `processVideoAsset()`              | `video_preprocessor()` + `video_processor()`                  | `video_processor/processors.py:26,86` |
+This workspace is connected directly to `origin/main` for `https://github.com/btg-pencil-ai/browser-asset-processing`.
+
+Repository hygiene expectations:
+
+- keep `node_modules/`, build outputs, proof artifacts, and local handoff notes out of git
+- do not commit `HANDOFF.md`
+- if you make a user-visible workflow change, document it in both `README.md` and `AGENTS.md`
