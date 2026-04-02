@@ -1,0 +1,5 @@
+node_modules/
+dist/
+dist-playground/
+proofshot-artifacts/
+.DS_Store
