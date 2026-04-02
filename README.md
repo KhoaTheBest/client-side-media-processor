@@ -4,6 +4,8 @@ Browser-side media preprocessing for images and videos.
 
 This repo moves selected asset-processing work out of the backend and into the browser so clients can reject bad files earlier, normalize outputs before upload, and reduce avoidable backend work.
 
+![Validation Lab demo](./docs/validation-lab-demo.png)
+
 ## What It Does
 
 - validates image and video files before upload
