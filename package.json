@@ -1,9 +1,9 @@
 {
-  "name": "@pencil/frontend-asset-processor",
+  "name": "client-side-media-processor",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Frontend asset processing pipeline — image validation, WebP conversion, segmentation detection, thumbnailing, and video processing",
+  "description": "Frontend asset processing pipeline \u2014 image validation, WebP conversion, segmentation detection, thumbnailing, and video processing",
   "main": "src/index.ts",
   "scripts": {
     "dev": "npm run dev:playground",
