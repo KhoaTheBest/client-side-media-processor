@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Frontend asset processing pipeline \u2014 image validation, WebP conversion, segmentation detection, thumbnailing, and video processing",
+  "description": "Frontend asset processing pipeline — image validation, WebP conversion, segmentation detection, thumbnailing, and video processing",
   "main": "src/index.ts",
   "scripts": {
     "dev": "npm run dev:playground",
@@ -21,6 +21,8 @@
     "typecheck:playground": "tsc --noEmit -p playground/tsconfig.json"
   },
   "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@jsquash/jpeg": "^1.6.0",
     "@jsquash/png": "^3.1.0",
     "@jsquash/resize": "^2.1.0",
@@ -30,10 +32,10 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.0.4",
-    "@types/node": "^20.0.0",
     "eslint": "^9.0.0",
     "jsdom": "^29.0.1",
     "typescript": "^5.7.0",

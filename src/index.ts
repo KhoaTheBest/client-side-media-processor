@@ -33,7 +33,7 @@ export { generateThumbnail } from "./lib/thumbnail-generation";
 
 // ── Video Processing ─────────────────────────────────
 export { preprocessVideo, extractVideoThumbnail } from "./lib/video-preprocessing";
-export { transcodeVideo, trimVideo } from "./lib/video-transcoding";
+export { transcodeVideo, trimVideo, transcodeVideoFFmpeg, transcodeVideoMediaBunny } from "./lib/video-transcoding";
 export { extractVideoAttributes, validateVideoFile } from "./lib/video-metadata";
 export { extractAudioTrack, hasAudioTrack } from "./lib/audio-extraction";
 
